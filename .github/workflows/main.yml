@@ -2,7 +2,7 @@ name: Vue.js Frontend CI/CD
 
 on:
   push:
-    branches: [ main ] # 当代码推送到 main 分支时触发
+    branches: [ main ] # 当代码推送到 main 分支时触发 hh
 
 env:
   DOCKER_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/vue3-practice-app # 你的 Docker Hub 用户名/镜像名
