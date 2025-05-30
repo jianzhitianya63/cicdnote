@@ -1,0 +1,79 @@
+name: Vue.js Frontend CI/CD
+
+on:
+  push:
+    branches: [ main ] # 当代码推送到 main 分支时触发
+
+env:
+  DOCKER_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/vue3-practice-app # 你的 Docker Hub 用户名/镜像名
+
+jobs:
+  build-and-push-docker-image:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }} # 或者 DOCKERHUB_PASSWORD
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: . # Dockerfile 的上下文路径，这里假设 Dockerfile 在项目根目录
+          file: ./Dockerfile # Dockerfile 的路径
+          push: true # 推送镜像
+          tags: |
+            ${{ env.DOCKER_IMAGE_NAME }}:latest
+            ${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }} # 使用 commit SHA 作为标签
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-to-server:
+    name: Deploy to Cloud Server
+    needs: build-and-push-docker-image # 依赖上一个 Job，确保镜像构建并推送成功
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v1.0.3 # 使用 SSH Action
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }} # 通常是 22
+          debug: true
+          script: |
+            echo "--- Deploying Vue 3 Frontend App ---"
+            # 拉取最新的 Docker 镜像
+            docker pull ${{ env.DOCKER_IMAGE_NAME }}:latest
+
+            # 停止并移除旧的容器 (如果存在)
+            # 为前端容器指定一个唯一的名称，例如 'vue3-app'
+            docker stop vue3-app || true
+            docker rm vue3-app || true
+
+            # 运行新的容器
+            # 将宿主机的 5173 端口映射到容器内部的 80 端口 (Nginx 监听的端口)
+            docker run -d -p 5173:80 \
+              --name vue3-app \
+              --restart always \
+              ${{ env.DOCKER_IMAGE_NAME }}:latest
+
+            echo "--- Cleaning up old Docker images (Optional, use with caution) ---"
+            # 再次提醒：此命令会删除所有未被任何容器引用的镜像，包括你其他项目的旧镜像。
+            # 如果不希望清除，请注释掉或删除此行。
+            # docker image prune -af
+
+            echo "Deployment complete. Access your app at http://${{ secrets.SSH_HOST }}:5173"
